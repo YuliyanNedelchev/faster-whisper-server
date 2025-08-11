@@ -279,7 +279,7 @@ async def transcribe_stream(
     language: Annotated[Language | None, Query()] = None,
     response_format: Annotated[ResponseFormat | None, Query()] = None,
     temperature: Annotated[float, Query()] = 0.0,
-    vad_filter: Annotated[bool, Query()] = False,
+    vad_filter: Annotated[bool, Query()] = True,
     _: str = Security(check_api_key),
 ) -> None:
     if model is None:
@@ -294,6 +294,8 @@ async def transcribe_stream(
         "temperature": temperature,
         "vad_filter": vad_filter,
         "condition_on_previous_text": False,
+        "hotwords": config.whisper.hotwords,  # Use hotwords for vocabulary boosting only
+        "no_speech_threshold": 0.8,  # Higher threshold to reduce false positives
     }
     with model_manager.load_model(model) as whisper:
         asr = FasterWhisperASR(whisper, **transcribe_opts)

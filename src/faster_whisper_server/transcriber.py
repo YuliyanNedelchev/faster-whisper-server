@@ -42,6 +42,7 @@ def needs_audio_after(confirmed: Transcription) -> float:
 
 
 def prompt(confirmed: Transcription) -> str | None:
+    """Dynamic prompt based on confirmed transcription."""
     sentences = to_full_sentences(confirmed.words)
     return word_to_text(sentences[-1]) if len(sentences) > 0 else None
 
@@ -51,18 +52,49 @@ async def audio_transcriber(
     audio_stream: AudioStream,
     min_duration: float,
 ) -> AsyncGenerator[Transcription, None]:
-    local_agreement = LocalAgreement()
-    full_audio = Audio()
-    confirmed = Transcription()
-    async for chunk in audio_stream.chunks(min_duration):
-        full_audio.extend(chunk)
-        audio = full_audio.after(needs_audio_after(confirmed))
-        transcription, _ = await asr.transcribe(audio, prompt(confirmed))
-        new_words = local_agreement.merge(confirmed, transcription)
-        if len(new_words) > 0:
-            confirmed.extend(new_words)
-            yield confirmed
-    logger.debug("Flushing...")
-    confirmed.extend(local_agreement.unconfirmed.words)
-    yield confirmed
+    """Real-time transcription - process each chunk independently like OpenAI"""
+    chunk_count = 0
+    current_sentence_words = []
+    
+    async for chunk_data in audio_stream.chunks(min_duration):
+        chunk_count += 1
+        
+        # Create independent audio chunk - no cumulative processing
+        chunk_audio = Audio(chunk_data, start=chunk_count * min_duration)
+        
+        # Transcribe chunk with no prompt to avoid hallucinations
+        transcription, info = await asr.transcribe(chunk_audio, None)
+        
+        # Skip chunks with no actual speech (check if empty or just noise)
+        text = transcription.text.strip()
+        if not text or len(text) < 2:
+            logger.debug(f"Chunk {chunk_count}: no meaningful text")
+            continue
+            
+        if transcription.words:
+            # Add words to current sentence
+            current_sentence_words.extend(transcription.words)
+            
+            # Check if we have a sentence boundary (punctuation or silence)
+            text = transcription.text.strip()
+            if text and (text.endswith('.') or text.endswith('!') or text.endswith('?')):
+                # Complete sentence - yield and reset
+                complete_sentence = Transcription(current_sentence_words)
+                logger.info(f"Complete sentence: '{complete_sentence.text}'")
+                yield complete_sentence
+                current_sentence_words = []
+            else:
+                # Partial sentence - yield current progress
+                partial_sentence = Transcription(current_sentence_words)
+                logger.debug(f"Partial: '{partial_sentence.text}'")
+                yield partial_sentence
+        else:
+            logger.debug(f"Chunk {chunk_count}: no speech detected")
+    
+    # Yield any remaining words as final sentence
+    if current_sentence_words:
+        final_sentence = Transcription(current_sentence_words)
+        logger.info(f"Final sentence: '{final_sentence.text}'")
+        yield final_sentence
+    
     logger.info("Audio transcriber finished")

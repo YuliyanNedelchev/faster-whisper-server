@@ -149,7 +149,7 @@ class Task(enum.StrEnum):
 class WhisperConfig(BaseModel):
     """See https://github.com/SYSTRAN/faster-whisper/blob/master/faster_whisper/transcribe.py#L599."""
 
-    model: str = Field(default="Systran/faster-whisper-small")
+    model: str = Field(default="Systran/faster-whisper-large-v2")
     """
     Default Huggingface model to use for transcription. Note, the model must support being ran using CTranslate2.
     This model will be used if no model is specified in the request.
@@ -168,6 +168,14 @@ class WhisperConfig(BaseModel):
     -1: Never unload the model.
     0: Unload the model immediately after usage.
     """
+    initial_prompt: str | None = Field(
+        default=None,
+        description="Static prompt for vocabulary guidance (like 'Hey Kingo, Kingo AI'). Used for transcription accuracy, not returned as text."
+    )
+    hotwords: str | None = Field(
+        default="hey kingo",
+        description="Default hotwords for vocabulary boosting. Always used unless overridden."
+    )
 
 
 class Config(BaseSettings):
@@ -214,20 +222,21 @@ class Config(BaseSettings):
     """
     List of models to preload on startup. By default, the model is first loaded on first request.
     """
-    max_no_data_seconds: float = 1.0
+    max_no_data_seconds: float = 5.0
     """
     Max duration to wait for the next audio chunk before transcription is finilized and connection is closed.
+    This can be overridden per WebSocket connection using the disable_timeouts parameter.
     """
     min_duration: float = 1.0
     """
     Minimum duration of an audio chunk that will be transcribed.
     """
     word_timestamp_error_margin: float = 0.2
-    max_inactivity_seconds: float = 2.5
+    max_inactivity_seconds: float = 50
     """
     Max allowed audio duration without any speech being detected before transcription is finilized and connection is closed.
     """  # noqa: E501
-    inactivity_window_seconds: float = 5.0
+    inactivity_window_seconds: float = 300.0
     """
     Controls how many latest seconds of audio are being passed through VAD.
     Should be greater than `max_inactivity_seconds`
